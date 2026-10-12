@@ -75,6 +75,24 @@ class ScreenshotTests(unittest.TestCase):
         with self.assertRaises(MenuNotReady):
             inspect_level_menu(menu_frame("easy"),"困难")
 
+    def test_pastel_easy13_badges_and_unique_solution_at_scaled_resolutions(self):
+        expected_totals={(r,c):n for r,c,n in LABELS["easy-13"]}
+        with Image.open(FIXTURES/"easy-13.png") as image:
+            # 2304x1296 is not used to generate recognition templates.
+            for size in ((2560,1440),(2048,1152),(1920,1080),(2304,1296)):
+                with self.subTest(size=size):
+                    reading=self.recognizer.read(image.resize(size,Image.Resampling.LANCZOS))
+                    actual={(r+1,c+1):n for r in range(9) for c in range(9)
+                            if (n:=self.recognizer.read_total(reading.frame,r,c)) is not None}
+                    self.assertEqual(actual,expected_totals)
+                    self.assertEqual(actual[1,4],13)
+                    self.assertEqual(reading.board,[0]*81)
+                    self.assertIsNone(reading.chooser)
+                    self.assertEqual(len(reading.cages),33)
+                    self.assertEqual(sum(c.total for c in reading.cages),405)
+                    solution=solve_unique(reading.board,reading.cages)
+                    validate_solution(solution,reading.cages)
+
     def test_actual_completed_first_tile_selects_second_level(self):
         image=Image.open(FIXTURES/"easy-after-one.png")
         for size in ((2560,1440),(2048,1152),(1920,1080)):

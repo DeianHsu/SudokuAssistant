@@ -16,7 +16,7 @@
 
 使用 64 位 Windows，先安装并打开对应游戏。
 
-1. 下载项目压缩包并解压，双击 `app/SudokuAssistant.exe`。运行可执行程序无需安装 Python。
+1. 从[发行版页面](https://github.com/DeianHsu/SudokuAssistant/releases/latest)下载 `SudokuAssistant.exe`，放入单独的文件夹后双击运行。无需安装 Python。
 2. 在顶部“选择助手”下拉栏中选择正在玩的游戏。
 3. 设置难度和通关数量。默认勾选“连续通关”，“最多通关”为 `0`，表示完成所选关卡组。
 4. 点击“开始”，在 **5 秒内切回游戏**。
@@ -61,9 +61,9 @@
 
 | 游戏 | 记录目录 |
 |---|---|
-| 数独宇宙 | `app/data/universe/` |
-| 拼图数独 | `app/data/jigsaw/` |
-| 杀手数独 | `app/data/killer/` |
+| 数独宇宙 | `data/universe/` |
+| 拼图数独 | `data/jigsaw/` |
+| 杀手数独 | `data/killer/` |
 
 `运行记录.txt` 保存运行日志；发生识别或操作错误时，`last_game.png` 保存最后画面。反馈问题时，请提供游戏名称、画面分辨率、操作步骤及相关日志或截图。
 
