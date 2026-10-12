@@ -30,4 +30,4 @@ jobs:
               ast.parse(source.read_text(encoding='utf-8-sig'), filename=str(source))
           '@ | python -B -
       - name: 检查程序初始化
-        run: python -B src/app.py --smoke-test
+        run: python -X utf8 -B src/app.py --smoke-test
