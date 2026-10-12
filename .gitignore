@@ -1,0 +1,30 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated packaging artifacts
+build/
+dist/
+*.spec
+*.log
+
+# Local runtime and test output
+data/
+test-data/
+preview-data/
+验证记录/
+
+# Local editor and environment settings
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+Desktop.ini
