@@ -5,7 +5,7 @@ from itertools import product
 from pathlib import Path
 import sys
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageChops, ImageFilter
 from .solver import Cage, combination_masks, validate_cages, PuzzleError
 
 SIZE = (2048, 1152)
@@ -416,6 +416,13 @@ class Recognizer:
                             self.variants[n].extend(list(sample) if sample.ndim==3 else [sample])
         with np.load(source.parent/"sums.npz",allow_pickle=False) as data:
             self.sum_variants={n:list(data[str(n)]) for n in range(10)}
+
+    def same_frame(self,first,second):
+        """Exact comparison of every pixel used by board recognition."""
+        if first.size!=SIZE or second.size!=SIZE:
+            return False
+        region=(620,172,1570,980)
+        return ImageChops.difference(first.crop(region),second.crop(region)).getbbox() is None
 
     def total_candidates(self,frame,r,c):
         mask=badge_mask(frame,r,c)

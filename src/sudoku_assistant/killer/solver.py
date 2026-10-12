@@ -56,7 +56,7 @@ def validate_cages(cages):
         raise PuzzleError("总和角标之和必须为 405，请检查总和及虚线边界识别。")
 
 
-@lru_cache(maxsize=24000)
+@lru_cache(maxsize=48000)
 def cage_support(domains, total):
     """Supported cell digits using subset matching, without enumerating permutations."""
     support = [0]*len(domains)
@@ -104,22 +104,35 @@ def validate_solution(board, cages):
             raise PuzzleError("解不满足虚线框的总和或不重复约束。")
 
 
-@lru_cache(maxsize=16000)
+@lru_cache(maxsize=48000)
 def sum_support(domains, total):
-    """Sum-only propagation for the cells inside/outside a 45-sum house."""
+    """Exact reachable sums as integer bitsets, allowing repeated digits."""
     values=tuple(tuple(n for n in range(1,10) if d & (1 << n)) for d in domains)
-    prefix=[{0}]
-    for digits in values:
-        prefix.append({s+n for s in prefix[-1] for n in digits if s+n <= total})
-    if total not in prefix[-1]:
+    if any(not digits for digits in values) or total<sum(min(digits) for digits in values) or total>sum(max(digits) for digits in values):
         return (0,)*len(domains)
-    suffix=[set() for _ in range(len(domains)+1)]
-    suffix[-1]={0}
+    limit=(1 << (total+1))-1
+    prefix=[1]
+    for digits in values:
+        reachable=0
+        for n in digits:
+            reachable |= prefix[-1] << n
+        prefix.append(reachable & limit)
+    if not prefix[-1] & (1 << total):
+        return (0,)*len(domains)
+    suffix=[0]*(len(domains)+1)
+    suffix[-1]=1
     for i in range(len(domains)-1,-1,-1):
-        suffix[i]={s+n for s in suffix[i+1] for n in values[i] if s+n <= total}
-    return tuple(sum(1 << n for n in values[i]
-                     if any(total-n-s in suffix[i+1] for s in prefix[i]))
-                 for i in range(len(domains)))
+        reachable=0
+        for n in values[i]:
+            reachable |= suffix[i+1] << n
+        suffix[i]=reachable & limit
+    support=[]
+    for i,digits in enumerate(values):
+        # Reverse suffix sums around the target. Shift by a candidate digit,
+        # then one intersection checks every compatible prefix sum at once.
+        reflected=int(bin(suffix[i+1])[2:].zfill(total+1)[::-1],2)
+        support.append(sum(1 << n for n in digits if prefix[i] & (reflected >> n)))
+    return tuple(support)
 
 
 def house_sum_constraints(cages):
@@ -137,7 +150,7 @@ def house_sum_constraints(cages):
     return tuple(sorted(constraints))
 
 
-def solve_unique(board, cages, check=None, node_limit=200000, timeout=45):
+def solve_unique(board, cages, check=None, node_limit=200000, timeout=45, stats=None):
     validate_cages(cages)
     if len(board) != 81 or any(type(n) is not int or not 0 <= n <= 9 for n in board):
         raise PuzzleError("棋盘必须包含 81 个 0–9 的数字。")
@@ -159,13 +172,15 @@ def solve_unique(board, cages, check=None, node_limit=200000, timeout=45):
             raise PuzzleError("求解超过上限，已停止点击；请检查识别结果。")
 
     def propagate(domains):
+        propagated=[0]*81
         while True:
             guard()
             changed = False
             for i,d in enumerate(domains):
                 if not d:
                     return False
-                if d.bit_count() == 1:
+                if d.bit_count() == 1 and propagated[i]!=d:
+                    propagated[i]=d
                     for j in peers[i]:
                         if domains[j] & d:
                             domains[j] &= ~d
@@ -173,13 +188,21 @@ def solve_unique(board, cages, check=None, node_limit=200000, timeout=45):
                             if not domains[j]:
                                 return False
             for house in HOUSES:
-                for n in range(1,10):
-                    bit = 1 << n
-                    positions = [i for i in house if domains[i] & bit]
-                    if not positions:
+                seen,repeated=0,0
+                for i in house:
+                    repeated |= seen & domains[i]
+                    seen |= domains[i]
+                if seen!=FULL:
+                    return False
+                unique=seen & ~repeated
+                if not unique:
+                    continue
+                for i in house:
+                    forced=domains[i] & unique
+                    if forced and forced.bit_count()!=1:
                         return False
-                    if len(positions) == 1 and domains[positions[0]] != bit:
-                        domains[positions[0]] = bit
+                    if forced and domains[i]!=forced:
+                        domains[i]=forced
                         changed = True
             for cage in cages:
                 supported = cage_support(tuple(domains[i] for i in cage.cells), cage.total)
@@ -198,7 +221,32 @@ def solve_unique(board, cages, check=None, node_limit=200000, timeout=45):
                         domains[i] = d
                         changed = True
             if not changed:
-                return True
+                for house in HOUSES:
+                    counts={}
+                    for i in house:
+                        d=domains[i]
+                        if 2<=d.bit_count()<=3:
+                            counts[d]=counts.get(d,0)+1
+                    for mask,count in counts.items():
+                        width=mask.bit_count()
+                        if count>width:
+                            return False
+                        if count!=width:
+                            continue
+                        # Identical pairs/triples occupy these digits in
+                        # exactly these cells, so every other cell excludes them.
+                        for i in house:
+                            d=domains[i]
+                            if d==mask:
+                                continue
+                            restricted=d & ~mask
+                            if not restricted:
+                                return False
+                            if restricted!=d:
+                                domains[i]=restricted
+                                changed=True
+                if not changed:
+                    return True
 
     def search(domains):
         nonlocal nodes
@@ -222,6 +270,8 @@ def solve_unique(board, cages, check=None, node_limit=200000, timeout=45):
             search(following)
 
     search([1 << n if n else FULL for n in board])
+    if stats is not None:
+        stats.update(nodes=nodes,solutions=len(answers),seconds=time.monotonic()-started)
     if not answers:
         raise PuzzleError("棋盘无解，已停止点击；请检查数字、虚线框和总和角标。")
     if len(answers) != 1:

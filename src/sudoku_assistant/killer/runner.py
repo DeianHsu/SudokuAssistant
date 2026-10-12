@@ -123,31 +123,44 @@ class Runner:
         raise RecognitionError(f"未能确认完整选关界面，未跳过当前难度。{last_error}")
 
     def stable_reading(self):
+        reading_started=time.perf_counter()
         # Remove the pointer highlight from filled cells before reading their glyphs.
         self.backend.move((1740,1000),self.check)
         self.wait(.30)
         previous=None
+        previous_reading=None
         deadline=time.monotonic()+self.reading_timeout
         last_error="连续两次的数字、虚线框或菜单状态尚未一致。"
         while time.monotonic()<deadline:
             try:
-                second=self.recognizer.read(self.capture())
+                frame=self.capture()
+                same_frame=getattr(self.recognizer,"same_frame",None)
+                if previous_reading is not None and callable(same_frame) and same_frame(previous_reading.frame,frame):
+                    second=previous_reading
+                    break
+                second=self.recognizer.read(frame)
                 signature=(second.board,second.cages,second.chooser)
                 if signature==previous:
                     break
                 previous=signature
+                previous_reading=second
             except RecognitionError as error:
                 last_error=str(error)
                 previous=None
+                previous_reading=None
             self.wait(.20)
         else:
             raise RecognitionError(f"未能确认稳定棋盘，已停止点击。{last_error}")
         self.last_reading=second
+        reading_seconds=time.perf_counter()-reading_started
         self.log("棋盘读取完成，正在求解并确认唯一解。")
+        solving_started=time.perf_counter()
         solution=solve_unique(second.board,second.cages,check=self.check)
+        solving_seconds=time.perf_counter()-solving_started
         self.emit("board",(second.board,solution,second.cages))
         scores=[s for n,s in zip(second.board,second.scores) if n]
         self.log(f"识别到 {sum(n>0 for n in second.board)} 个已有数字；{len(second.cages)} 个虚线框，总和 405；已确认唯一解。")
+        self.log(f"本盘耗时：读取及稳定确认 {reading_seconds:.2f} 秒；求解及唯一解确认 {solving_seconds:.2f} 秒。")
         if scores:
             self.log(f"最低数字匹配度 {min(scores):.0%}。")
         return second,solution
