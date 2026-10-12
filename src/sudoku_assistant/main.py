@@ -17,7 +17,7 @@ from .jigsaw import app as jigsaw_app
 from .killer import app as killer_app
 
 
-VERSION = "1.1"
+VERSION = "1.0.2"
 ASSISTANTS = {
     "universe": (universe_app.DISPLAY_NAME, universe_app),
     "jigsaw": (jigsaw_app.DISPLAY_NAME, jigsaw_app),

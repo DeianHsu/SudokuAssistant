@@ -1,11 +1,12 @@
 """Screenshot recognition for Killer Sudoku, including inset dashed cage walls."""
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import product
 from pathlib import Path
 import sys
 import numpy as np
 from PIL import Image, ImageFilter
-from .solver import Cage, validate_cages, PuzzleError
+from .solver import Cage, combination_masks, validate_cages, PuzzleError
 
 SIZE = (2048, 1152)
 BOARD = (640, 192, 1408, 960)
@@ -374,6 +375,28 @@ def cage_partition(frame,chooser,threshold):
     return groups
 
 
+def unique_total_assignment(choices, target=405):
+    """Resolve visual candidates by an exact sum; retain ambiguity instead of guessing."""
+    states={0:(1,())}
+    for allowed in choices:
+        following={}
+        for subtotal,(count,path) in states.items():
+            for total in sorted(set(allowed)):
+                combined=subtotal+total
+                if combined>target:
+                    continue
+                if combined in following:
+                    previous,_=following[combined]
+                    following[combined]=(min(2,previous+count),None)
+                else:
+                    following[combined]=(count,path+(total,) if count==1 else None)
+        states=following
+        if not states:
+            return None,False
+    count,path=states.get(target,(0,None))
+    return path,count>1
+
+
 class Recognizer:
     def __init__(self,assets=None):
         source=Path(assets) if assets else resource_dir()/"digits.npz"
@@ -394,53 +417,87 @@ class Recognizer:
         with np.load(source.parent/"sums.npz",allow_pickle=False) as data:
             self.sum_variants={n:list(data[str(n)]) for n in range(10)}
 
-    def read_total(self,frame,r,c):
+    def total_candidates(self,frame,r,c):
         mask=badge_mask(frame,r,c)
         if mask is None:
             return None
         glyphs=badge_glyphs(mask)
         if not 1<=len(glyphs)<=2:
             raise RecognitionError(f"第 {r+1} 行第 {c+1} 列的总和角标未显示清楚。")
-        text=""
+        digits=[]
         for x0,y0,x1,y1,_ in glyphs:
             sample=normalize(mask[y0:y1,x0:x1])
             ranked=sorted((max(similarity(sample,t) for t in variants),n)
                           for n,variants in self.sum_variants.items())
             (score,n),(second,other)=ranked[-1],ranked[-2]
-            if score<.72 or score-second<.035:
+            if score<.72:
                 raise RecognitionError(f"第 {r+1} 行第 {c+1} 列总和识别不确定（{n}：{score:.0%}，{other}：{second:.0%}）。")
-            text+=str(n)
-        if text.startswith("0") or not 1<=int(text)<=45:
+            digits.append(tuple(number for match,number in reversed(ranked)
+                                if match>=.72 and score-match<.035))
+        totals=set()
+        for numbers in product(*digits):
+            if numbers[0]==0:
+                continue
+            total=int("".join(map(str,numbers)))
+            if 1<=total<=45:
+                totals.add(total)
+        if not totals:
             raise RecognitionError("总和角标不在 1–45 范围内。")
-        return int(text)
+        return tuple(sorted(totals))
+
+    def read_total(self,frame,r,c):
+        totals=self.total_candidates(frame,r,c)
+        if totals is None:
+            return None
+        if len(totals)==1:
+            return totals[0]
+        # A close font match is resolved by the same cage/board constraints
+        # used for every puzzle, never by a level number or a cell override.
+        for cage in self.read_cages(frame):
+            if r*9+c in cage.cells:
+                return cage.total
+        raise RecognitionError(f"第 {r+1} 行第 {c+1} 列总和无法唯一确认。")
 
     def read_cages(self,frame,chooser=None):
-        totals={i:n for i in range(81) if (n:=self.read_total(frame,*divmod(i,9))) is not None}
+        totals={i:n for i in range(81) if (n:=self.total_candidates(frame,*divmod(i,9))) is not None}
         if not totals:
             raise RecognitionError("没有识别到总和角标，请确认打开的是杀手数独。")
-        hidden_total=405-sum(totals.values())
         candidates={}
+        ambiguous=False
         for threshold in (.12,.18,.24,.30):
             groups=cage_partition(frame,chooser,threshold)
-            cages=[]
+            choices=[]
             for cells in groups:
+                if not 1<=len(cells)<=9:
+                    break
                 anchors=[i for i in cells if i in totals]
                 # An open chooser can hide its own cage's top-left badge.
                 # Only that cage may recover its total from the board sum.
-                if not anchors and chooser==cells[0] and 1<=hidden_total<=45:
-                    cages.append(Cage(hidden_total,cells))
-                    continue
-                if len(anchors)!=1:
+                if not anchors and chooser==cells[0]:
+                    allowed=range(1,46)
+                elif len(anchors)==1:
+                    allowed=totals[anchors[0]]
+                else:
                     break
-                cages.append(Cage(totals[anchors[0]],cells))
+                allowed=tuple(total for total in allowed if combination_masks(len(cells),total))
+                if not allowed:
+                    break
+                choices.append(allowed)
             else:
+                resolved,multiple=unique_total_assignment(choices)
+                if multiple:
+                    ambiguous=True
+                    continue
+                if resolved is None:
+                    continue
+                cages=tuple(Cage(total,cells) for total,cells in zip(resolved,groups))
                 try:
                     validate_cages(cages)
                 except PuzzleError:
                     continue
-                candidates[tuple(cages)]=tuple(cages)
-        if len(candidates)!=1:
-            raise RecognitionError("虚线边界无法唯一还原为每框一个总和、完整覆盖 81 格且总和为 405 的分区，已停止点击。")
+                candidates[cages]=cages
+        if ambiguous or len(candidates)!=1:
+            raise RecognitionError("总和角标及虚线边界无法唯一还原为每框数字不重复、完整覆盖 81 格且总和为 405 的分区，已停止点击。")
         return next(iter(candidates.values()))
 
     def read_cell(self,frame,r,c):

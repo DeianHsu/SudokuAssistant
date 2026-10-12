@@ -28,3 +28,10 @@ preview-data/
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Private validation material and release executables
+tests/
+fixtures/
+test_*.py
+/app/
+*.exe

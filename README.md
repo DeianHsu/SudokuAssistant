@@ -90,8 +90,7 @@ powershell -ExecutionPolicy Bypass -File .\src\build.ps1 -Python .\.venv\Scripts
 ```text
 SudokuAssistant/
 ├── README.md          使用说明
-├── app/               可直接运行的程序
 ├── assets/            界面图片
-├── src/               源码、识别资源和测试样本
+├── src/               源码和运行必需的识别资源
 └── requirements.txt   Python 依赖配置
 ```
